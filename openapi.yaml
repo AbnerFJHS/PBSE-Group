@@ -1,0 +1,271 @@
+openapi: 3.0.3
+info:
+  title: Gym Membership Verification API
+  version: 1.1.0
+  description: |
+    Verifies gym memberships and records check-ins. Session 3 scope:
+    no authentication yet (added in Session 4).
+
+servers:
+  - url: /
+
+paths:
+  /v1/memberships/{membershipId}:
+    get:
+      operationId: getMembership
+      summary: Read a single membership
+      parameters:
+        - $ref: '#/components/parameters/MembershipId'
+      responses:
+        '200':
+          description: The membership
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Membership'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /v1/check-ins:
+    get:
+      operationId: listCheckIns
+      summary: List check-ins, optionally filtered by member
+      parameters:
+        - name: memberId
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [active, completed]
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+        - name: cursor
+          in: query
+          description: Opaque cursor from the previous page's nextCursor
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: A page of check-ins
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/CheckIn'
+                  nextCursor:
+                    type: string
+                    nullable: true
+                required: [data]
+        '400':
+          $ref: '#/components/responses/BadRequest'
+
+    post:
+      operationId: createCheckIn
+      summary: Record a check-in (idempotent)
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CheckInCreate'
+      responses:
+        '201':
+          description: Check-in recorded
+          headers:
+            Location:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CheckIn'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '409':
+          description: Domain-state conflict — already checked in, membership not active (frozen/expired/cancelled), or Idempotency-Key reused with a different body
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '422':
+          description: References a membership that does not exist
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+
+  /v1/check-ins/{checkInId}:
+    get:
+      operationId: getCheckIn
+      summary: Read a single check-in (the target of POST's Location header)
+      parameters:
+        - $ref: '#/components/parameters/CheckInId'
+      responses:
+        '200':
+          description: The check-in
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CheckIn'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /v1/check-ins/{checkInId}/check-out:
+    post:
+      operationId: checkOut
+      summary: End an active check-in (active -> completed)
+      description: |
+        Sets `checkedOutAt` to the server time and `status` to `completed`.
+        Not idempotency-keyed: repeating it on a completed check-in is answered 409.
+      parameters:
+        - $ref: '#/components/parameters/CheckInId'
+      responses:
+        '200':
+          description: The updated check-in
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CheckIn'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: The check-in is already completed
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+
+  /health:
+    get:
+      operationId: health
+      summary: Liveness check — does not check the database
+      responses:
+        '200':
+          description: OK
+
+components:
+  parameters:
+    CheckInId:
+      name: checkInId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    MembershipId:
+      name: membershipId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+
+  responses:
+    BadRequest:
+      description: The request did not match the schema
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    NotFound:
+      description: The object does not exist
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+
+  schemas:
+    Membership:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        memberId:
+          type: string
+          format: uuid
+        planName:
+          type: string
+        status:
+          type: string
+          enum: [active, frozen, expired, cancelled]
+        renewsOn:
+          type: string
+          format: date
+          nullable: true
+      required: [id, memberId, planName, status]
+
+    CheckIn:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        membershipId:
+          type: string
+          format: uuid
+        checkedInAt:
+          type: string
+          format: date-time
+        checkedOutAt:
+          type: string
+          format: date-time
+          nullable: true
+        status:
+          type: string
+          enum: [active, completed]
+      required: [id, membershipId, checkedInAt, status]
+
+    CheckInCreate:
+      type: object
+      properties:
+        membershipId:
+          type: string
+          format: uuid
+      required: [membershipId]
+
+    Problem:
+      type: object
+      properties:
+        type:
+          type: string
+        title:
+          type: string
+        status:
+          type: integer
+        detail:
+          type: string
+        instance:
+          type: string
+        errors:
+          type: array
+          items:
+            type: object
+      required: [type, title, status, detail, instance]

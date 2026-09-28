@@ -1,0 +1,32 @@
+# Render Blueprint. Secrets are declared with `sync: false`, so Render asks
+# for them in the dashboard and they are never committed (A.10).
+services:
+  - type: web
+    name: gym-api
+    runtime: node
+    plan: free                 # switch to `starter` before the Session 7 demo (free instances sleep)
+    rootDir: service
+    buildCommand: npm ci
+    startCommand: npm start
+    healthCheckPath: /health   # must NOT touch the database (A.10 §4)
+    autoDeploy: true
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DATABASE_URL      # Neon connection string, includes ?sslmode=require
+        sync: false
+
+  # Session 5 (web client). Uncomment once web/ exists.
+  # - type: web
+  #   name: gym-web
+  #   runtime: static
+  #   rootDir: web
+  #   buildCommand: npm ci && npm run build
+  #   staticPublishPath: dist
+  #   routes:                  # deep links (/memberships/123) must load index.html
+  #     - type: rewrite
+  #       source: /*
+  #       destination: /index.html
+  #   envVars:
+  #     - key: VITE_API_BASE_URL
+  #       sync: false

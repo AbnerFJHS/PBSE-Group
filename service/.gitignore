@@ -1,0 +1,4 @@
+.hypothesis/
+.schemathesis/
+node_modules/
+.env
